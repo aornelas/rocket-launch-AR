@@ -30,6 +30,9 @@ namespace GoogleARCore.HelloAR
     /// </summary>
     public class HelloARController : MonoBehaviour
     {
+        private GameObject cur_rocket;
+        private float apply_force_timer = 0f;
+
         /// <summary>
         /// The first-person camera being used to render the passthrough camera.
         /// </summary>
@@ -77,77 +80,90 @@ namespace GoogleARCore.HelloAR
         /// </summary>
         public void Update ()
         {
-            _QuitOnConnectionErrors();
+            _QuitOnConnectionErrors ();
 
             // The tracking state must be FrameTrackingState.Tracking in order to access the Frame.
-            if (Frame.TrackingState != FrameTrackingState.Tracking)
-            {
+            if (Frame.TrackingState != FrameTrackingState.Tracking) {
                 const int LOST_TRACKING_SLEEP_TIMEOUT = 15;
                 Screen.sleepTimeout = LOST_TRACKING_SLEEP_TIMEOUT;
                 return;
             }
 
             Screen.sleepTimeout = SleepTimeout.NeverSleep;
-            Frame.GetNewPlanes(ref m_newPlanes);
+            Frame.GetNewPlanes (ref m_newPlanes);
 
             // Iterate over planes found in this frame and instantiate corresponding GameObjects to visualize them.
-            for (int i = 0; i < m_newPlanes.Count; i++)
-            {
+            for (int i = 0; i < m_newPlanes.Count; i++) {
                 // Instantiate a plane visualization prefab and set it to track the new plane. The transform is set to
                 // the origin with an identity rotation since the mesh for our prefab is updated in Unity World
                 // coordinates.
-                GameObject planeObject = Instantiate(m_trackedPlanePrefab, Vector3.zero, Quaternion.identity,
-                    transform);
-                planeObject.GetComponent<TrackedPlaneVisualizer>().SetTrackedPlane(m_newPlanes[i]);
+                GameObject planeObject = Instantiate (m_trackedPlanePrefab, Vector3.zero, Quaternion.identity,
+                                             transform);
+                planeObject.GetComponent<TrackedPlaneVisualizer> ().SetTrackedPlane (m_newPlanes [i]);
 
                 // Apply a random color and grid rotation.
-                planeObject.GetComponent<Renderer>().material.SetColor("_GridColor", m_planeColors[Random.Range(0,
+                planeObject.GetComponent<Renderer> ().material.SetColor ("_GridColor", m_planeColors [Random.Range (0,
                     m_planeColors.Length - 1)]);
-                planeObject.GetComponent<Renderer>().material.SetFloat("_UvRotation", Random.Range(0.0f, 360.0f));
+                planeObject.GetComponent<Renderer> ().material.SetFloat ("_UvRotation", Random.Range (0.0f, 360.0f));
             }
 
             // Disable the snackbar UI when no planes are valid.
             bool showSearchingUI = true;
-            Frame.GetAllPlanes(ref m_allPlanes);
-            for (int i = 0; i < m_allPlanes.Count; i++)
-            {
-                if (m_allPlanes[i].IsValid)
-                {
+            Frame.GetAllPlanes (ref m_allPlanes);
+            for (int i = 0; i < m_allPlanes.Count; i++) {
+                if (m_allPlanes [i].IsValid) {
                     showSearchingUI = false;
                     break;
                 }
             }
 
-            m_searchingForPlaneUI.SetActive(showSearchingUI);
+            m_searchingForPlaneUI.SetActive (showSearchingUI);
+
+            if (apply_force_timer > 0f)
+            {
+                cur_rocket.GetComponent<Rigidbody>().AddForce(cur_rocket.transform.forward * 10f);
+                apply_force_timer -= Time.deltaTime;
+            }
 
             Touch touch;
-            if (Input.touchCount < 1 || (touch = Input.GetTouch(0)).phase != TouchPhase.Began)
-            {
+
+            if (Input.touchCount < 1 ||
+                    (touch = Input.GetTouch (0)).phase != TouchPhase.Began &&
+                        (touch = Input.GetTouch (0)).phase != TouchPhase.Ended) {
+                return;
+            }
+
+            // finger lifted
+            if ((touch = Input.GetTouch (0)).phase == TouchPhase.Ended) {
+                apply_force_timer = 3f;
                 return;
             }
 
             TrackableHit hit;
             TrackableHitFlag raycastFilter = TrackableHitFlag.PlaneWithinBounds | TrackableHitFlag.PlaneWithinPolygon;
 
-            if (Session.Raycast(m_firstPersonCamera.ScreenPointToRay(touch.position), raycastFilter, out hit))
-            {
+            if (Session.Raycast (m_firstPersonCamera.ScreenPointToRay (touch.position), raycastFilter, out hit)) {
                 // Create an anchor to allow ARCore to track the hitpoint as understanding of the physical
                 // world evolves.
-                var anchor = Session.CreateAnchor(hit.Point, Quaternion.identity);
+                var anchor = Session.CreateAnchor (hit.Point, Quaternion.identity);
 
                 // Intanstiate an Andy Android object as a child of the anchor; it's transform will now benefit
                 // from the anchor's tracking.
-                var andyObject = Instantiate(m_andyAndroidPrefab, hit.Point, Quaternion.identity,
-                    anchor.transform);
+                var andyObject = Instantiate (m_andyAndroidPrefab, hit.Point, Quaternion.identity);
+//                                     anchor.transform);
 
-                // Andy should look at the camera but still be flush with the plane.
-                andyObject.transform.LookAt(m_firstPersonCamera.transform);
-                andyObject.transform.rotation = Quaternion.Euler(0.0f,
-                    andyObject.transform.rotation.eulerAngles.y, andyObject.transform.rotation.z);
+                andyObject.transform.rotation = Quaternion.Euler (270f, 0f, 0f);
 
-                // Use a plane attachment component to maintain Andy's y-offset from the plane
-                // (occurs after anchor updates).
-                andyObject.GetComponent<PlaneAttachment>().Attach(hit.Plane);
+                // Adjust for rocket's height
+                Vector3 andyPosition = andyObject.transform.position;
+                andyPosition.y += 0.15f;
+                andyObject.transform.position = andyPosition;
+                andyObject.GetComponent<Rigidbody> ().velocity = new Vector3 (0f, 0f, 0f);
+                if (cur_rocket != null) {
+                    Destroy (cur_rocket.gameObject);
+                }
+                cur_rocket = andyObject;
+                apply_force_timer = 0f;
             }
         }
 
